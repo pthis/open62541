@@ -44,7 +44,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # overwritten with more detailed information if git is available.
 set(OPEN62541_VER_MAJOR 1)
 set(OPEN62541_VER_MINOR 4)
-set(OPEN62541_VER_PATCH 6)
+set(OPEN62541_VER_PATCH 8)
 set(OPEN62541_VER_LABEL "-undefined") # like "-rc1" or "-g4538abcd" or "-g4538abcd-dirty"
 set(OPEN62541_VER_COMMIT "unknown-commit")
 
@@ -371,9 +371,6 @@ endif()
 option(UA_DEBUG_DUMP_PKGS "Dump every package received by the server as hexdump format" OFF)
 mark_as_advanced(UA_DEBUG_DUMP_PKGS)
 
-option(UA_ENABLE_HARDENING "Enable Hardening measures (e.g. Stack-Protectors and Fortify)" ON)
-mark_as_advanced(UA_ENABLE_HARDENING)
-
 if(CMAKE_VERSION VERSION_GREATER 3.6)
     set(UA_ENABLE_STATIC_ANALYZER "OFF" CACHE STRING "Enable installed static analyzer during build process (off/minimal/reduced/full)")
     mark_as_advanced(UA_ENABLE_STATIC_ANALYZER)
@@ -496,6 +493,11 @@ if(UA_ENABLE_TPM2_SECURITY)
     list(APPEND open62541_LIBRARIES ${TPM2_LIB})
 endif()
 
+if(MINGW)
+    # GCC stack protector support
+    list(APPEND open62541_LIBRARIES ws2_32 ssp)
+endif()
+
 #####################
 # Compiler Settings #
 #####################
@@ -592,16 +594,6 @@ if((CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang") AND
     endif()
 
     if(NOT MINGW AND NOT UA_BUILD_OSS_FUZZ)
-        if(UA_ENABLE_HARDENING)
-            check_add_cc_flag("-fstack-protector-strong") # more performant stack protector, available since gcc 4.9
-            check_add_cc_flag("-fstack-clash-protection") # increased reliability of stack overflow detection, available since gcc 8
-            # future use (control flow integrity protection)
-            if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
-                check_add_cc_flag("-mcet")
-                check_add_cc_flag("-fcf-protection")
-            endif()
-        endif()
-
         # IPO requires too much memory for unit tests
         # GCC docu recommends to compile all files with the same options, therefore ignore it completely
         if(NOT UA_BUILD_UNIT_TESTS AND NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
@@ -632,10 +624,6 @@ if((CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang") AND
         endif()
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SANITIZER_FLAGS}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZER_FLAGS}")
-    endif()
-
-    if(NOT MINGW AND UA_ENABLE_HARDENING AND ((CMAKE_BUILD_TYPE STREQUAL "Release") OR (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")))
-        check_add_cc_flag("-D_FORTIFY_SOURCE=2") # run-time buffer overflow detection (needs at least -O1)
     endif()
 
     # Strip release builds
@@ -738,13 +726,13 @@ set(exported_headers ${PROJECT_BINARY_DIR}/src_generated/open62541/config.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/plugin/eventloop.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/plugin/nodestore.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/plugin/historydatabase.h
-                     ${PROJECT_SOURCE_DIR}/include/open62541/server_pubsub.h
-                     ${PROJECT_SOURCE_DIR}/include/open62541/pubsub.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/client.h
-                     ${PROJECT_SOURCE_DIR}/include/open62541/server.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/client_highlevel.h
                      ${PROJECT_SOURCE_DIR}/include/open62541/client_subscriptions.h
-                     ${PROJECT_SOURCE_DIR}/include/open62541/client_highlevel_async.h)
+                     ${PROJECT_SOURCE_DIR}/include/open62541/client_highlevel_async.h
+                     ${PROJECT_SOURCE_DIR}/include/open62541/server_pubsub.h
+                     ${PROJECT_SOURCE_DIR}/include/open62541/server.h
+                     ${PROJECT_SOURCE_DIR}/include/open62541/pubsub.h)
 
 # Main Library
 
@@ -901,7 +889,6 @@ if(UA_BUILD_FUZZING OR UA_BUILD_OSS_FUZZ)
     list(APPEND lib_sources ${PROJECT_SOURCE_DIR}/tests/fuzz/custom_memory_manager.c)
 endif()
 
-
 # Plugins
 set(plugin_headers ${PROJECT_SOURCE_DIR}/plugins/include/open62541/plugin/accesscontrol_default.h
                    ${PROJECT_SOURCE_DIR}/plugins/include/open62541/plugin/certificategroup_default.h
@@ -920,25 +907,36 @@ set(plugin_sources ${PROJECT_SOURCE_DIR}/plugins/ua_log_stdout.c
                    ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_certificategroup_none.c
                    ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_securitypolicy_none.c)
 
-# Always add the POSIX eventloop. The files internally check for the configured architecture
-list(APPEND plugin_sources
-     ${PROJECT_SOURCE_DIR}/arch/common/timer.h
-     ${PROJECT_SOURCE_DIR}/arch/common/timer.c
-     ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.h
-     ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.c
-     ${PROJECT_SOURCE_DIR}/arch/common/eventloop_mqtt.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix.h
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_tcp.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_udp.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_eth.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_interrupt.c
-     ${PROJECT_SOURCE_DIR}/arch/posix/clock_posix.c
-     ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr.h
-     ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr.c
-     ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr_tcp.c
-     ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr_tcp.c
-     ${PROJECT_SOURCE_DIR}/arch/zephyr/clock_zephyr.c)
+if(UA_ARCHITECTURE_POSIX OR UA_ARCHITECTURE_WIN32)
+    list(APPEND plugin_sources
+         ${PROJECT_SOURCE_DIR}/arch/common/timer.h
+         ${PROJECT_SOURCE_DIR}/arch/common/timer.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/clock_posix.c
+         ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.h
+         ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix.h
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_tcp.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_udp.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_eth.c
+         ${PROJECT_SOURCE_DIR}/arch/posix/eventloop_posix_interrupt.c)
+endif()
+
+if(UA_ARCHITECTURE_ZEPHYR)
+    list(APPEND plugin_sources
+         ${PROJECT_SOURCE_DIR}/arch/common/timer.h
+         ${PROJECT_SOURCE_DIR}/arch/common/timer.c
+         ${PROJECT_SOURCE_DIR}/arch/zephyr/clock_zephyr.c
+         ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.h
+         ${PROJECT_SOURCE_DIR}/arch/common/eventloop_common.c
+         ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr.h
+         ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr.c
+         ${PROJECT_SOURCE_DIR}/arch/zephyr/eventloop_zephyr_tcp.c)
+endif()
+
+if(UA_ENABLE_MQTT)
+    list(APPEND plugin_sources ${PROJECT_SOURCE_DIR}/arch/common/eventloop_mqtt.c)
+endif()
      
 # For file based server configuration
 if(UA_ENABLE_JSON_ENCODING)
@@ -969,13 +967,16 @@ endif()
 # Use guards in the files to ensure that UA_ENABLE_ENCRYPTON_MBEDTLS and UA_ENABLE_ENCRYPTION_OPENSSL are honored.
 
 if((UNIX AND UA_ENABLE_ENCRYPTION) OR UA_ENABLE_AMALGAMATION)
-    list(APPEND plugin_sources ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_certificategroup_filestore.c
+    list(APPEND plugin_sources ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_filestore_common.h
+                               ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_filestore_common.c
+                               ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_certificategroup_filestore.c
                                ${PROJECT_SOURCE_DIR}/plugins/crypto/ua_securitypolicy_filestore.c)
 endif()
 
 if(UA_ENABLE_ENCRYPTION_MBEDTLS OR UA_ENABLE_AMALGAMATION)
+    list(INSERT plugin_sources 0
+         ${PROJECT_SOURCE_DIR}/plugins/crypto/mbedtls/securitypolicy_common.h)
     list(APPEND plugin_sources
-         ${PROJECT_SOURCE_DIR}/plugins/crypto/mbedtls/securitypolicy_common.h
          ${PROJECT_SOURCE_DIR}/plugins/crypto/mbedtls/securitypolicy_common.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/mbedtls/securitypolicy_basic128rsa15.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/mbedtls/securitypolicy_basic256.c
@@ -989,14 +990,16 @@ if(UA_ENABLE_ENCRYPTION_MBEDTLS OR UA_ENABLE_AMALGAMATION)
 endif()
 
 if(UA_ENABLE_ENCRYPTION_OPENSSL OR UA_ENABLE_ENCRYPTION_LIBRESSL OR UA_ENABLE_AMALGAMATION)
+    list(INSERT plugin_sources 0
+         ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_common.h)
     list(APPEND plugin_sources
-         ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_common.h
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_common.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_basic128rsa15.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_basic256.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_basic256sha256.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_aes128sha256rsaoaep.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_aes256sha256rsapss.c
+         ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/securitypolicy_eccnistp256.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/create_certificate.c
          ${PROJECT_SOURCE_DIR}/plugins/crypto/openssl/certificategroup.c)
 endif()
@@ -1034,20 +1037,22 @@ endif()
 set(UA_FILE_NODESETS) # List of nodeset-xml files to be considered in the generated information model
 set(UA_NODESET_DIR ${PROJECT_SOURCE_DIR}/deps/ua-nodeset CACHE STRING "The path to the node-set directory (e.g. from https://github.com/OPCFoundation/UA-Nodeset)")
 
+unset(UA_FILE_NS0_PRIVATE)
+if(UA_FILE_NS0)
+    set(UA_FILE_NS0_PRIVATE "${UA_FILE_NS0}")
+endif()
+
 if(UA_NAMESPACE_ZERO STREQUAL "FULL")
     # Use the "full" schema files also for datatypes and statuscodes
     set(UA_SCHEMA_DIR ${UA_NODESET_DIR}/Schema CACHE INTERNAL "")
 
-    # Set the full Nodeset for NS0.
-    # Use a new variable UA_FILE_NS0_INTERNAL so we don't pollute the options.
-    if(UA_FILE_NS0)
-        set(UA_FILE_NS0_INTERNAL ${UA_FILE_NS0})
-    else()
-        set(UA_FILE_NS0_INTERNAL ${UA_SCHEMA_DIR}/Opc.Ua.NodeSet2.xml CACHE INTERNAL "")
+    # Set the full Nodeset for NS0
+    if(NOT UA_FILE_NS0_PRIVATE)
+        set(UA_FILE_NS0_PRIVATE ${UA_SCHEMA_DIR}/Opc.Ua.NodeSet2.xml)
     endif()
 
     # Check that the submodule was checked out or manually downloaded into the folder
-    if(NOT EXISTS "${UA_FILE_NS0_INTERNAL}")
+    if(NOT EXISTS "${UA_FILE_NS0_PRIVATE}")
         message(STATUS "Submodule update")
         execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
                         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
@@ -1060,12 +1065,9 @@ else()
     # Directory with the schema files for installation
     set(UA_SCHEMA_DIR ${PROJECT_SOURCE_DIR}/tools/schema CACHE INTERNAL "")
 
-    # Set the reduced Nodeset for NS0.
-    # Use a new variable UA_FILE_NS0_INTERNAL so we don't pollute the options.
-    if(UA_FILE_NS0)
-        set(UA_FILE_NS0_INTERNAL ${UA_FILE_NS0})
-    else()
-        set(UA_FILE_NS0_INTERNAL ${UA_SCHEMA_DIR}/Opc.Ua.NodeSet2.Reduced.xml CACHE INTERNAL "")
+    # Set the reduced Nodeset for NS0
+    if(NOT UA_FILE_NS0_PRIVATE)
+        set(UA_FILE_NS0_PRIVATE ${UA_SCHEMA_DIR}/Opc.Ua.NodeSet2.Reduced.xml CACHE INTERNAL "")
     endif()
 
     # Set feature-specific datatypes definitions and nodesets
@@ -1124,7 +1126,7 @@ else()
     endif()
 endif()
 
-list(INSERT UA_FILE_NODESETS 0 "${UA_FILE_NS0_INTERNAL}")
+list(INSERT UA_FILE_NODESETS 0 "${UA_FILE_NS0_PRIVATE}")
 set(UA_FILE_NODEIDS ${UA_SCHEMA_DIR}/NodeIds.csv)
 set(UA_FILE_STATUSCODES ${UA_SCHEMA_DIR}/StatusCode.csv)
 set(UA_FILE_TYPES_BSD ${UA_SCHEMA_DIR}/Opc.Ua.Types.bsd)
@@ -1150,7 +1152,6 @@ ua_generate_datatypes(INTERNAL NAME "transport" TARGET_SUFFIX "transport" NAMESP
 # statuscode explanation
 add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/src_generated/open62541/statuscodes.h
                           ${PROJECT_BINARY_DIR}/src_generated/open62541/statuscodes.c
-                   PRE_BUILD
                    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_statuscode_descriptions.py
                            ${UA_FILE_STATUSCODES} ${PROJECT_BINARY_DIR}/src_generated/open62541/statuscodes
                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_statuscode_descriptions.py
@@ -1170,7 +1171,6 @@ add_custom_target(open62541-generator-statuscode DEPENDS
 if(UA_ENABLE_AMALGAMATION)
     # single-file release
     add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/open62541.h
-                       PRE_BUILD
                        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/amalgamate.py
                                ${OPEN62541_VERSION} ${CMAKE_CURRENT_BINARY_DIR}/open62541.h
                                ${exported_headers} ${NODESETLOADER_PUBLIC_HEADERS} ${plugin_headers}
@@ -1178,7 +1178,6 @@ if(UA_ENABLE_AMALGAMATION)
                                ${exported_headers} ${plugin_headers})
 
     add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/open62541.c
-                       PRE_BUILD
                        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/amalgamate.py
                                ${OPEN62541_VERSION} ${CMAKE_CURRENT_BINARY_DIR}/open62541.c
                                ${lib_headers} ${NODESETLOADER_PRIVATE_HEADERS} ${lib_sources} ${plugin_sources}
@@ -1205,7 +1204,7 @@ if(UA_ENABLE_NODESET_INJECTOR)
     message(STATUS "Nodesetinjector feature enabled")
     cmake_minimum_required(VERSION 3.20)
     add_custom_command(OUTPUT ${PROJECT_BINARY_DIR}/src_generated/open62541/nodesetinjector.h
-                       ${PROJECT_BINARY_DIR}/src_generated/open62541/nodesetinjector.c PRE_BUILD
+                       ${PROJECT_BINARY_DIR}/src_generated/open62541/nodesetinjector.c
                        COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/nodeset_injector/generate_nodesetinjector.py
                        ${PROJECT_BINARY_DIR}/src_generated/open62541/nodesetinjector)
     add_custom_target(open62541-generator-nodesetinjector DEPENDS
@@ -1486,5 +1485,5 @@ set_target_properties(open62541-generator-types PROPERTIES FOLDER "open62541/gen
 if(UA_ENABLE_NODESET_INJECTOR)
     set_target_properties(open62541-generator-nodesetinjector PROPERTIES FOLDER "open62541/generators")
     add_subdirectory(tools/nodeset_injector)
-    set(UA_NODESETINJECTOR_GENERATORS ${UA_NODESETINJECTOR_GENERATORS} PARENT_SCOPE)
+    set(UA_NODESETINJECTOR_GENERATORS ${UA_NODESETINJECTOR_GENERATORS})
 endif()

@@ -716,19 +716,6 @@ unescape(char *pos, const char *end) {
 }
 
 UA_StatusCode
-UA_String_append(UA_String *s, const UA_String s2) {
-    if(s2.length == 0)
-        return UA_STATUSCODE_GOOD;
-    UA_Byte *buf = (UA_Byte*)UA_realloc(s->data, s->length + s2.length);
-    if(!buf)
-        return UA_STATUSCODE_BADOUTOFMEMORY;
-    memcpy(buf + s->length, s2.data, s2.length);
-    s->data = buf;
-    s->length += s2.length;
-    return UA_STATUSCODE_GOOD;
-}
-
-UA_StatusCode
 UA_String_escapeAppend(UA_String *s, const UA_String s2, UA_Boolean extended) {
     /* Allocate memory for the qn name.
      * We allocate enough space to escape every character. */
@@ -845,6 +832,7 @@ static UA_NodeId baseEventTypeId = {0, UA_NODEIDTYPE_NUMERIC, {UA_NS0ID_BASEEVEN
 UA_StatusCode
 UA_SimpleAttributeOperand_print(const UA_SimpleAttributeOperand *sao,
                                 UA_String *out) {
+    UA_RelativePathElement rpe;
     UA_String tmp = UA_STRING_NULL;
     UA_StatusCode res = UA_STATUSCODE_GOOD;
 
@@ -852,22 +840,18 @@ UA_SimpleAttributeOperand_print(const UA_SimpleAttributeOperand *sao,
     if(!UA_NodeId_equal(&baseEventTypeId, &sao->typeDefinitionId)) {
         UA_Byte nodeIdBuf[512];
         UA_String nodeIdBufStr = {512, nodeIdBuf};
-        res = UA_NodeId_print(&sao->typeDefinitionId, &nodeIdBufStr);
-        if(res != UA_STATUSCODE_GOOD)
-            goto cleanup;
-        res = UA_String_escapeAppend(&tmp, nodeIdBufStr, true);
-        if(res != UA_STATUSCODE_GOOD)
-            goto cleanup;
+        res |= UA_NodeId_print(&sao->typeDefinitionId, &nodeIdBufStr);
+        res |= UA_String_escapeAppend(&tmp, nodeIdBufStr, true);
     }
 
     /* Print the BrowsePath */
-    UA_RelativePathElement rpe;
     UA_RelativePathElement_init(&rpe);
     rpe.includeSubtypes = true;
     rpe.referenceTypeId = hierarchicalRefs;
     UA_RelativePath rp = {1, &rpe};
     for(size_t i = 0; i < sao->browsePathSize; i++) {
         UA_String rpstr = UA_STRING_NULL;
+        UA_assert(rpstr.data == NULL && rpstr.length == 0); /* pacify clang scan-build */
         rpe.targetName = sao->browsePath[i];
         res |= printRelativePath(&rp, &rpstr, true);
         res |= UA_String_append(&tmp, rpstr);
@@ -876,11 +860,9 @@ UA_SimpleAttributeOperand_print(const UA_SimpleAttributeOperand *sao,
 
     /* Print the attribute name */
     if(sao->attributeId != UA_ATTRIBUTEID_VALUE) {
-        res |= UA_String_append(&tmp, UA_STRING("#"));
         const char *attrName = UA_AttributeId_name((UA_AttributeId)sao->attributeId);
+        res |= UA_String_append(&tmp, UA_STRING("#"));
         res |= UA_String_append(&tmp, UA_STRING((char*)(uintptr_t)attrName));
-        if(res != UA_STATUSCODE_GOOD)
-            goto cleanup;
     }
 
     /* Print the IndexRange */
@@ -890,7 +872,6 @@ UA_SimpleAttributeOperand_print(const UA_SimpleAttributeOperand *sao,
         res |= UA_String_append(&tmp, UA_STRING("]"));
     }
 
- cleanup:
     /* Encoding failed, clean up */
     if(res != UA_STATUSCODE_GOOD) {
         UA_String_clear(&tmp);
@@ -916,6 +897,7 @@ UA_AttributeOperand_print(const UA_AttributeOperand *ao,
 
     /* Print the BrowsePath */
     UA_String rpstr = UA_STRING_NULL;
+    UA_assert(rpstr.data == NULL && rpstr.length == 0); /* pacify clang scan-build */
     res |= printRelativePath(&ao->browsePath, &rpstr, true);
     res |= UA_String_append(&tmp, rpstr);
     UA_String_clear(&rpstr);

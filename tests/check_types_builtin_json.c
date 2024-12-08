@@ -1405,9 +1405,13 @@ START_TEST(UA_NodeId_NonReversible_Numeric_Namespace_json_encode) {
     const UA_DataType *type = &UA_TYPES[UA_TYPES_NODEID];
 
     UA_String namespaces[3] = {UA_STRING("ns0"), UA_STRING("ns1"), UA_STRING("ns2")};
+    UA_NamespaceMapping nsm;
+    memset(&nsm, 0, sizeof(UA_NamespaceMapping));
+    nsm.namespaceUris = namespaces;
+    nsm.namespaceUrisSize = 3;
+
     UA_EncodeJsonOptions options = {0};
-    options.namespaces = namespaces;
-    options.namespacesSize = 3;
+    options.namespaceMapping = &nsm;
 
     size_t size = UA_calcSizeJson((void *) src, type, &options);
     ck_assert_uint_ne(size, 0);
@@ -1763,10 +1767,15 @@ START_TEST(UA_QualName_NonReversible_Namespace_json_encode) {
     src->name = UA_STRING_ALLOC("derName");
     src->namespaceIndex = 2;
     const UA_DataType *type = &UA_TYPES[UA_TYPES_QUALIFIEDNAME];
+
+    UA_NamespaceMapping nsm;
+    memset(&nsm, 0, sizeof(UA_NamespaceMapping));
     UA_String namespaces[3] = {UA_STRING("ns0"),UA_STRING("ns1"),UA_STRING("ns2")};
+    nsm.namespaceUris = namespaces;
+    nsm.namespaceUrisSize = 3;
+
     UA_EncodeJsonOptions options = {0};
-    options.namespaces = namespaces;
-    options.namespacesSize = 3;
+    options.namespaceMapping = &nsm;
 
     size_t size = UA_calcSizeJson((void *) src, type, &options);
 
@@ -2708,9 +2717,13 @@ START_TEST(UA_ExpandedNodeId_NonReversible_Namespace_json_encode) {
     UA_String namespaces[3] = {UA_STRING("ns0"),UA_STRING("ns1"),UA_STRING("ns2")};
     UA_String serverUris[3] = {UA_STRING("uri0"),UA_STRING("uri1"),UA_STRING("uri2")};
 
+    UA_NamespaceMapping nsm;
+    memset(&nsm, 0, sizeof(UA_NamespaceMapping));
+    nsm.namespaceUris = namespaces;
+    nsm.namespaceUrisSize = 3;
+
     UA_EncodeJsonOptions options = {0};
-    options.namespaces = namespaces;
-    options.namespacesSize = 3;
+    options.namespaceMapping = &nsm;
     options.serverUris = serverUris;
     options.serverUrisSize = 3;
 
@@ -2741,9 +2754,13 @@ START_TEST(UA_ExpandedNodeId_NonReversible_NamespaceUriGiven_json_encode) {
     UA_String namespaces[3] = {UA_STRING("ns0"),UA_STRING("ns1"),UA_STRING("ns2")};
     UA_String serverUris[3] = {UA_STRING("uri0"),UA_STRING("uri1"),UA_STRING("uri2")};
 
+    UA_NamespaceMapping nsm;
+    memset(&nsm, 0, sizeof(UA_NamespaceMapping));
+    nsm.namespaceUris = namespaces;
+    nsm.namespaceUrisSize = 3;
+
     UA_EncodeJsonOptions options = {0};
-    options.namespaces = namespaces;
-    options.namespacesSize = 3;
+    options.namespaceMapping = &nsm;
     options.serverUris = serverUris;
     options.serverUrisSize = 3;
 
@@ -5421,14 +5438,14 @@ START_TEST(UA_JsonHelper) {
     ck_assert_int_eq(writeJsonArrStart(&ctx), UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED);
     ck_assert_int_eq(writeJsonObjStart(&ctx), UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED);
     ck_assert_int_eq(writeJsonObjEnd(&ctx), UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED);
-    ck_assert_int_eq(writeJsonArrEnd(&ctx), UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED);
+    ck_assert_int_eq(writeJsonArrEnd(&ctx, NULL), UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED);
 
     ctx.calcOnly = true;
     ctx.end = (const UA_Byte*)(uintptr_t)SIZE_MAX;
     ck_assert_int_eq(writeJsonArrStart(&ctx), UA_STATUSCODE_GOOD);
     ck_assert_int_eq(writeJsonObjStart(&ctx), UA_STATUSCODE_GOOD);
     ck_assert_int_eq(writeJsonObjEnd(&ctx), UA_STATUSCODE_GOOD);
-    ck_assert_int_eq(writeJsonArrEnd(&ctx), UA_STATUSCODE_GOOD);
+    ck_assert_int_eq(writeJsonArrEnd(&ctx, NULL), UA_STATUSCODE_GOOD);
 }
 END_TEST
 
