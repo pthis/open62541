@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  *
- *    Copyright 2019 (c) Kalycito Infotech Private Limited
+ *    Copyright 2024 (c) Siemens AG (Authors: Tin Raic, Thomas Zeschg)
  *
  */
 
@@ -42,12 +42,12 @@ static void setup(void) {
 
     /* Load certificate and private key */
     UA_ByteString certificate;
-    certificate.length = CERT_DER_LENGTH;
-    certificate.data = CERT_DER_DATA;
+    certificate.length = CERT_P256_DER_LENGTH;
+    certificate.data = CERT_P256_DER_DATA;
 
     UA_ByteString privateKey;
-    privateKey.length = KEY_DER_LENGTH;
-    privateKey.data = KEY_DER_DATA;
+    privateKey.length = KEY_P256_DER_LENGTH;
+    privateKey.data = KEY_P256_DER_DATA;
 
     /* Load the trustlist */
     size_t trustListSize = 0;
@@ -65,7 +65,7 @@ static void setup(void) {
         trustList[i] = loadFile(argv[i+3]);
     */
 
-    /* Revocation lists are supported, but not used here */
+    /* Loading of a revocation list currently unsupported */
     UA_ByteString *revocationList = NULL;
     size_t revocationListSize = 0;
 
@@ -97,12 +97,12 @@ static void setup2(void) {
 
     /* Load certificate and private key */
     UA_ByteString certificate;
-    certificate.length = CERT_DER_LENGTH;
-    certificate.data = CERT_DER_DATA;
+    certificate.length = CERT_P256_DER_LENGTH;
+    certificate.data = CERT_P256_DER_DATA;
 
     UA_ByteString privateKey;
-    privateKey.length = KEY_DER_LENGTH;
-    privateKey.data = KEY_DER_DATA;
+    privateKey.length = KEY_P256_DER_LENGTH;
+    privateKey.data = KEY_P256_DER_DATA;
 
     char storePathDir[4096];
     getcwd(storePathDir, 4096);
@@ -145,13 +145,13 @@ START_TEST(encryption_connect) {
 
     /* Load certificate and private key */
     UA_ByteString certificate;
-    certificate.length = CERT_DER_LENGTH;
-    certificate.data = CERT_DER_DATA;
+    certificate.length = CERT_P256_DER_LENGTH;
+    certificate.data = CERT_P256_DER_DATA;
     ck_assert_uint_ne(certificate.length, 0);
 
     UA_ByteString privateKey;
-    privateKey.length = KEY_DER_LENGTH;
-    privateKey.data = KEY_DER_DATA;
+    privateKey.length = KEY_P256_DER_LENGTH;
+    privateKey.data = KEY_P256_DER_DATA;
     ck_assert_uint_ne(privateKey.length, 0);
 
     /* The Get endpoint (discovery service) is done with
@@ -167,7 +167,7 @@ START_TEST(encryption_connect) {
     UA_Array_delete(endpointArray, endpointArraySize,
                     &UA_TYPES[UA_TYPES_ENDPOINTDESCRIPTION]);
 
-    /* Revocation lists are supported, but not used here
+    /* TODO test trustList Load revocationList is not supported now
     if(argc > MIN_ARGS) {
         trustListSize = (size_t)argc-MIN_ARGS;
         retval = UA_ByteString_allocBuffer(trustList, trustListSize);
@@ -193,7 +193,7 @@ START_TEST(encryption_connect) {
     cc->certificateVerification.clear(&cc->certificateVerification);
     UA_CertificateGroup_AcceptAll(&cc->certificateVerification);
     cc->securityPolicyUri =
-        UA_STRING_ALLOC("http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256");
+        UA_STRING_ALLOC("http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP256");
     ck_assert(client != NULL);
 
     for(size_t deleteCount = 0; deleteCount < trustListSize; deleteCount++) {
@@ -227,13 +227,13 @@ START_TEST(encryption_connect_pem) {
 
     /* Load certificate and private key */
     UA_ByteString certificate;
-    certificate.length = CERT_PEM_LENGTH;
-    certificate.data = CERT_PEM_DATA;
+    certificate.length = CERT_P256_PEM_LENGTH;
+    certificate.data = CERT_P256_PEM_DATA;
     ck_assert_uint_ne(certificate.length, 0);
 
     UA_ByteString privateKey;
-    privateKey.length = KEY_PEM_LENGTH;
-    privateKey.data = KEY_PEM_DATA;
+    privateKey.length = KEY_P256_PEM_LENGTH;
+    privateKey.data = KEY_P256_PEM_DATA;
     ck_assert_uint_ne(privateKey.length, 0);
 
     /* The Get endpoint (discovery service) is done with
@@ -249,7 +249,7 @@ START_TEST(encryption_connect_pem) {
     UA_Array_delete(endpointArray, endpointArraySize,
                     &UA_TYPES[UA_TYPES_ENDPOINTDESCRIPTION]);
 
-    /* Revocation lists are supported, but not used here
+    /* TODO test trustList Load revocationList is not supported now
     if(argc > MIN_ARGS) {
         trustListSize = (size_t)argc-MIN_ARGS;
         retval = UA_ByteString_allocBuffer(trustList, trustListSize);
@@ -275,7 +275,7 @@ START_TEST(encryption_connect_pem) {
     cc->certificateVerification.clear(&cc->certificateVerification);
     UA_CertificateGroup_AcceptAll(&cc->certificateVerification);
     cc->securityPolicyUri =
-        UA_STRING_ALLOC("http://opcfoundation.org/UA/SecurityPolicy#Basic256Sha256");
+        UA_STRING_ALLOC("http://opcfoundation.org/UA/SecurityPolicy#ECC_nistP256");
     ck_assert(client != NULL);
 
     for(size_t deleteCount = 0; deleteCount < trustListSize; deleteCount++) {
@@ -300,7 +300,7 @@ END_TEST
 
 static Suite* testSuite_encryption(void) {
     Suite *s = suite_create("Encryption");
-    TCase *tc_encryption = tcase_create("Encryption basic256sha256");
+    TCase *tc_encryption = tcase_create("Encryption ECC_nistP256");
     tcase_add_checked_fixture(tc_encryption, setup, teardown);
 #ifdef UA_ENABLE_ENCRYPTION
     tcase_add_test(tc_encryption, encryption_connect);
@@ -309,7 +309,7 @@ static Suite* testSuite_encryption(void) {
     suite_add_tcase(s,tc_encryption);
 
 #ifdef __linux__ /* Linux only so far */
-    TCase *tc_encryption_filestore = tcase_create("Encryption basic256sha256 security policy filestore");
+    TCase *tc_encryption_filestore = tcase_create("Encryption ECC_nistP256 security policy filestore");
     tcase_add_checked_fixture(tc_encryption_filestore, setup2, teardown);
 #ifdef UA_ENABLE_ENCRYPTION
     tcase_add_test(tc_encryption_filestore, encryption_connect);
