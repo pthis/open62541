@@ -350,7 +350,12 @@ UA_GDSManager_clear(UA_GDSManager *gdsManager) {
         return;
     gdsManager->checkSessionCallbackId = 0;
     UA_GDSTransaction_clear(&gdsManager->transaction);
-    UA_free(gdsManager->fileInfoContext);
+    void *fileInfoContext = gdsManager->fileInfoContext;
+    while(fileInfoContext) {
+        void *next = *((void **)fileInfoContext);
+        UA_free(fileInfoContext);
+        fileInfoContext = next;
+    }
 }
 
 /*********************/
@@ -1030,7 +1035,8 @@ verifyServerApplicationURI(const UA_Server *server) {
         UA_StatusCode retval =
             UA_CertificateUtils_verifyApplicationURI(server->config.allowAllCertificateUris,
                                                      &sp->localCertificate,
-                                                     &server->config.applicationDescription.applicationUri);
+                                                     &server->config.applicationDescription.applicationUri,
+                                                     server->config.logging);
         UA_CHECK_STATUS_ERROR(retval, return retval, server->config.logging,
                               UA_LOGCATEGORY_SERVER,
                               "The configured ApplicationURI \"%S\" does not match the "

@@ -88,10 +88,11 @@ examples/
 Pipfile
 Pipfile.lock
 .vscode
+/.vs
 **/libxml2
-
+debian/*
+/CMakeSettings.json
 # clangd cache
 .cache/
-
 # project local vim settings
 .vim/
