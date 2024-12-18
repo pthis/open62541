@@ -1,5 +1,10 @@
 if(MSVC)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W1") # Reduce warnings level
+    add_compile_options(
+        $<$<CONFIG:>:/MD>
+        $<$<CONFIG:Debug>:/MDd>
+        $<$<CONFIG:Release>:/MD>
+    )    
 else()
     add_compile_options(-Wno-unused-variable -Wno-unused-function)
     add_compile_options(-Wno-gnu-zero-variadic-macro-arguments) # silence warning for the check library
@@ -362,6 +367,10 @@ if(UA_ENABLE_ENCRYPTION)
     if(UA_ENABLE_DISCOVERY)
         ua_add_test(server/check_discovery.c)
     endif()
+
+    if(UA_ENABLE_GDS_PUSHMANAGEMENT)
+        ua_add_test(encryption/check_gds_informationmodel.c)
+    endif()
 endif()
 
 if(UA_ENABLE_ENCRYPTION_MBEDTLS)
@@ -392,6 +401,10 @@ if(UA_ENABLE_ENCRYPTION_OPENSSL OR UA_ENABLE_ENCRYPTION_LIBRESSL)
     ua_add_test(encryption/check_update_trustlist.c)
     ua_add_test(encryption/check_username_connect_none.c)
     ua_add_test(encryption/check_certificategroup.c)
+endif()
+
+if(UA_ENABLE_ENCRYPTION_OPENSSL)
+    ua_add_test(encryption/check_encryption_eccnistp256.c)
 endif()
 
 # Tests for Nodeset Compiler

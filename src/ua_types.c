@@ -21,7 +21,8 @@
 #include "util/ua_util_internal.h"
 #include "../deps/itoa.h"
 #include "../deps/base64.h"
-#include "libc_time.h"
+#include "../deps/libc_time.h"
+#include "../deps/mp_printf.h"
 
 #define UA_MAX_ARRAY_DIMS 100 /* Max dimensions of an array */
 
@@ -180,6 +181,61 @@ String_copy(UA_String const *src, UA_String *dst, const UA_DataType *_) {
 static void
 String_clear(UA_String *s, const UA_DataType *_) {
     UA_Array_delete(s->data, s->length, &UA_TYPES[UA_TYPES_BYTE]);
+}
+
+UA_StatusCode
+UA_String_append(UA_String *s, const UA_String s2) {
+    if(s2.length == 0)
+        return UA_STATUSCODE_GOOD;
+    UA_Byte *buf = (UA_Byte*)UA_realloc(s->data, s->length + s2.length);
+    if(!buf)
+        return UA_STATUSCODE_BADOUTOFMEMORY;
+    memcpy(buf + s->length, s2.data, s2.length);
+    s->data = buf;
+    s->length += s2.length;
+    return UA_STATUSCODE_GOOD;
+}
+
+UA_StatusCode
+UA_String_printf(UA_String *str, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    UA_StatusCode ret = UA_String_vprintf(str, format, args);
+    va_end(args);
+    return ret;
+}
+
+UA_StatusCode
+UA_String_vprintf(UA_String *str, const char *format, va_list args) {
+    /* Encode initially */
+    int out = mp_vsnprintf((char*)str->data, str->length, format, args);
+    if(out < 0)
+        return UA_STATUSCODE_BADENCODINGERROR;
+
+    /* Output length zero */
+    if(out == 0) {
+        str->length = 0;
+        if(str->data == NULL)
+            str->data = (UA_Byte*)UA_EMPTY_ARRAY_SENTINEL;
+        return UA_STATUSCODE_GOOD;
+    }
+
+    /* Encode into existing buffer. mp_snprintf adds a trailing \0. So out must
+     * be truly smaller than str->length for success. */
+    if(str->length > 0) {
+        if((size_t)out >= str->length)
+            return UA_STATUSCODE_BADENCODINGLIMITSEXCEEDED;
+        str->length = (size_t)out;
+        return UA_STATUSCODE_GOOD;
+    }
+
+    /* Allocate and encode again (+1 length for the trailing \0) */
+    UA_StatusCode res = UA_ByteString_allocBuffer(str, (size_t)out + 1);
+    if(res != UA_STATUSCODE_GOOD)
+        return res;
+    mp_vsnprintf((char*)str->data, str->length, format, args);
+    str->length--;
+    return UA_STATUSCODE_GOOD;
 }
 
 /* QualifiedName */
@@ -2223,4 +2279,53 @@ UA_NumericRange_parse(UA_NumericRange *range, const UA_String str) {
     }
 
     return retval;
+}
+
+/*********************/
+/* Namespace Mapping */
+/*********************/
+
+UA_UInt16
+UA_NamespaceMapping_local2Remote(UA_NamespaceMapping *nm, UA_UInt16 localIndex) {
+    if(localIndex >= nm->local2remoteSize)
+        return UA_UINT16_MAX - localIndex;
+    return nm->local2remote[localIndex];
+}
+
+UA_UInt16
+UA_NamespaceMapping_remote2Local(UA_NamespaceMapping *nm, UA_UInt16 remoteIndex) {
+    if(remoteIndex >= nm->remote2localSize)
+        return UA_UINT16_MAX - remoteIndex;
+    return nm->remote2local[remoteIndex];
+}
+
+/* Returns an error if the uri was not found.
+ * The pointer to the index argument needs to be non-NULL. */
+UA_StatusCode
+UA_NamespaceMapping_uri2Index(UA_NamespaceMapping *nm, UA_String uri, UA_UInt16 *index) {
+    for(size_t i = 0; i < nm->namespaceUrisSize; i++) {
+        if(UA_String_equal(&uri, &nm->namespaceUris[i])) {
+            *index = (UA_UInt16)i;
+            return UA_STATUSCODE_GOOD;
+        }
+    }
+    return UA_STATUSCODE_BADNOTFOUND;
+}
+
+UA_StatusCode
+UA_NamespaceMapping_index2Uri(UA_NamespaceMapping *nm, UA_UInt16 index, UA_String *uri) {
+    if(nm->namespaceUrisSize <= index)
+        return UA_STATUSCODE_BADNOTFOUND;
+    *uri = nm->namespaceUris[index];
+    return UA_STATUSCODE_GOOD;
+}
+
+void
+UA_NamespaceMapping_delete(UA_NamespaceMapping *nm) {
+    if(!nm)
+        return;
+    UA_Array_delete(nm->namespaceUris, nm->namespaceUrisSize, &UA_TYPES[UA_TYPES_STRING]);
+    UA_Array_delete(nm->local2remote, nm->local2remoteSize, &UA_TYPES[UA_TYPES_UINT16]);
+    UA_Array_delete(nm->remote2local, nm->remote2localSize, &UA_TYPES[UA_TYPES_UINT16]);
+    UA_free(nm);
 }
